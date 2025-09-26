@@ -1,7 +1,7 @@
 .env
 logs
 lighter_data
-params
+params/*.csv
 .DS_Store
 **/secrets/*
 gueguette.json
