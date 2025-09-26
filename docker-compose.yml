@@ -22,89 +22,89 @@ services:
       - LOG_DIR=/app/logs
     command: python gather_lighter_data.py
 
-  avellaneda-calculator:
-    build: .
-    container_name: avellaneda-calculator
-    restart: unless-stopped
-    volumes:
-      - ./lighter_data:/app/lighter_data:ro
-      - ./logs:/app/logs
-      - ./params:/app/params
-      - ./calculate_avellaneda_parameters.py:/app/calculate_avellaneda_parameters.py:ro
-      - ./.env:/app/.env:ro
-    env_file:
-      - .env
-    environment:
-      - PYTHONUNBUFFERED=1
-      - HL_DATA_LOC=/app/lighter_data
-      - PARAMS_DIR=/app/params
-      - LOG_DIR=/app/logs
-    command: >
-      sh -c "
-        while true; do
-          echo 'Calculating Avellaneda parameters...';
-          python calculate_avellaneda_parameters.py ${MARKET_SYMBOL:-PAXG} --minutes 10;
-          echo 'Sleeping before next run...';
-          sleep 600;
-        done
-      "
-    depends_on:
-      - lighter-data-collector
+  # avellaneda-calculator:
+  #   build: .
+  #   container_name: avellaneda-calculator
+  #   restart: unless-stopped
+  #   volumes:
+  #     - ./lighter_data:/app/lighter_data:ro
+  #     - ./logs:/app/logs
+  #     - ./params:/app/params
+  #     - ./calculate_avellaneda_parameters.py:/app/calculate_avellaneda_parameters.py:ro
+  #     - ./.env:/app/.env:ro
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     - PYTHONUNBUFFERED=1
+  #     - HL_DATA_LOC=/app/lighter_data
+  #     - PARAMS_DIR=/app/params
+  #     - LOG_DIR=/app/logs
+  #   command: >
+  #     sh -c "
+  #       while true; do
+  #         echo 'Calculating Avellaneda parameters...';
+  #         python calculate_avellaneda_parameters.py ${MARKET_SYMBOL:-PAXG} --minutes 10;
+  #         echo 'Sleeping before next run...';
+  #         sleep 600;
+  #       done
+  #     "
+  #   depends_on:
+  #     - lighter-data-collector
 
-  supertrend-calculator:
-    build: .
-    container_name: supertrend-calculator
-    restart: unless-stopped
-    working_dir: /app
-    volumes:
-      - ./params:/app/params
-      - ./logs:/app/logs
-      - ./find_trend_lighter.py:/app/find_trend_lighter.py:ro
-      - ./.env:/app/.env:ro
-    env_file:
-      - .env
-    environment:
-      - PYTHONUNBUFFERED=1
-      - PARAMS_DIR=/app/params
-      - LOG_DIR=/app/logs
-    command: >
-      sh -c "
-        while true; do
-          echo 'Running supertrend calculator...';
-          python find_trend_lighter.py --symbol ${MARKET_SYMBOL:-PAXG} --interval 1m;
-          echo 'Sleeping for 2 minutes...';
-          sleep 120;
-        done
-      "
-    depends_on:
-      - lighter-data-collector
+  # supertrend-calculator:
+  #   build: .
+  #   container_name: supertrend-calculator
+  #   restart: unless-stopped
+  #   working_dir: /app
+  #   volumes:
+  #     - ./params:/app/params
+  #     - ./logs:/app/logs
+  #     - ./find_trend_lighter.py:/app/find_trend_lighter.py:ro
+  #     - ./.env:/app/.env:ro
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     - PYTHONUNBUFFERED=1
+  #     - PARAMS_DIR=/app/params
+  #     - LOG_DIR=/app/logs
+  #   command: >
+  #     sh -c "
+  #       while true; do
+  #         echo 'Running supertrend calculator...';
+  #         python find_trend_lighter.py --symbol ${MARKET_SYMBOL:-PAXG} --interval 1m;
+  #         echo 'Sleeping for 2 minutes...';
+  #         sleep 120;
+  #       done
+  #     "
+  #   depends_on:
+  #     - lighter-data-collector
 
-  market-maker:
-    image: my-image:latest
-    platform: linux/amd64
-    build: .
-    container_name: market-maker
-    restart: unless-stopped
-    working_dir: /app
-    volumes:
-      - ./params:/app/params:ro
-      - ./logs:/app/logs
-      - ./market_maker.py:/app/market_maker.py:ro
-      - ./.env:/app/.env:ro
-    env_file:
-      - .env
-    environment:
-      - PYTHONUNBUFFERED=1
-      - PARAMS_DIR=/app/params
-      - LOG_DIR=/app/logs
-    command: >
-      sh -c "
-        while true; do
-          echo 'Starting market maker...';
-          python market_maker.py --symbol ${MARKET_SYMBOL:-PAXG};
-          echo 'Restarting in 10 seconds...';
-          sleep 10;
-        done
-      "
-    depends_on:
-      - avellaneda-calculator
+  # market-maker:
+  #   image: my-image:latest
+  #   platform: linux/amd64
+  #   build: .
+  #   container_name: market-maker
+  #   restart: unless-stopped
+  #   working_dir: /app
+  #   volumes:
+  #     - ./params:/app/params:ro
+  #     - ./logs:/app/logs
+  #     - ./market_maker.py:/app/market_maker.py:ro
+  #     - ./.env:/app/.env:ro
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     - PYTHONUNBUFFERED=1
+  #     - PARAMS_DIR=/app/params
+  #     - LOG_DIR=/app/logs
+  #   command: >
+  #     sh -c "
+  #       while true; do
+  #         echo 'Starting market maker...';
+  #         python market_maker.py --symbol ${MARKET_SYMBOL:-PAXG};
+  #         echo 'Restarting in 10 seconds...';
+  #         sleep 10;
+  #       done
+  #     "
+  #   depends_on:
+  #     - avellaneda-calculator

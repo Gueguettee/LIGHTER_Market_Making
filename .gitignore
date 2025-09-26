@@ -2,3 +2,8 @@
 logs
 lighter_data
 params
+.DS_Store
+**/secrets/*
+gueguette.json
+aws_instance.json
+aws_credentials.json
