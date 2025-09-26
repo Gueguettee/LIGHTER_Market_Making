@@ -1,4 +1,3 @@
-version: '3.8'
 networks:
   default:
     driver: bridge
@@ -81,6 +80,8 @@ services:
       - lighter-data-collector
 
   market-maker:
+    image: my-image:latest
+    platform: linux/amd64
     build: .
     container_name: market-maker
     restart: unless-stopped

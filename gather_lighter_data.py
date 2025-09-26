@@ -72,7 +72,7 @@ logger, summary_logger = setup_logging()
 
 
 # --- Configuration ---
-CRYPTO_TICKERS = ['ETH', 'BTC', 'PAXG', 'ASTER']  # Symbols to track
+CRYPTO_TICKERS = ['ETH', 'BTC', 'PAXG', 'ASTER', 'SOL', 'BNB', 'HYPE', 'XRP', 'DOGE']  # Symbols to track
 DATA_FOLDER = 'lighter_data'             # Directory for CSV output
 BUFFER_SECONDS = 5                       # Interval to write buffered data to disk
 
