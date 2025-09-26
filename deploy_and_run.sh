@@ -111,10 +111,11 @@ start_instance() {
   echo "IP publique: $INSTANCE_IP"
 
   # Put $INSTANCE_IP in known_hosts
-  ssh-keyscan -H "$INSTANCE_IP" >> ~/.ssh/known_hosts
+  ssh-keyscan -v -H "$INSTANCE_IP" >> ~/.ssh/known_hosts
   if [[ "$INSTANCE_IP" == "null" || -z "$INSTANCE_IP" ]]; then
     echo "⚠️ instance_ip missing in $INSTANCE_FILE, script will try to retrieve IP after starting instance."
   fi
+  echo "✅ Connection ssh successful."
 }
 
 # Stop EC2 instance (wait until stopped)
@@ -213,6 +214,7 @@ EOF
 
   echo "🚀 Connexion pour build & run Docker..."
   ssh -ti "$SSH_KEY" "$SSH_USER@$INSTANCE_IP" << EOF
+set -e
 cd "$REMOTE_DIR"
 
 echo "🛠️ Build de l'image Docker..."
@@ -246,6 +248,8 @@ sudo rm -f $REMOTE_CODE_DIR/$(basename $ZIP_FILE)
 "
     rm -f "$ZIP_FILE"
   fi
+
+  echo "🚀 Launch command on instance..."
 
   if [[ "$instruction" == "startRun" ]]; then
     ssh -i "$SSH_KEY" "$SSH_USER@$INSTANCE_IP" -t "
