@@ -48,9 +48,9 @@ os.makedirs(LOG_DIR, exist_ok=True)
 SPREAD = 0.035 / 100.0       # static fallback spread (if allowed)
 BASE_AMOUNT = 0.047          # static fallback amount
 USE_DYNAMIC_SIZING = True
-CAPITAL_USAGE_PERCENT = 0.25
+CAPITAL_USAGE_PERCENT = 0.99
 SAFETY_MARGIN_PERCENT = 0.01
-ORDER_TIMEOUT = 15           # seconds
+ORDER_TIMEOUT = 30           # seconds
 
 # Avellaneda
 AVELLANEDA_REFRESH_INTERVAL = 900  # seconds
@@ -188,6 +188,7 @@ def read_supertrend_trend() -> Optional[int]:
         os.path.join(PARAMS_DIR, f"supertrend_params_{MARKET_SYMBOL}.json"),
         f"params/supertrend_params_{MARKET_SYMBOL}.json",
         f"supertrend_params_{MARKET_SYMBOL}.json",
+        f"/app/params/supertrend_params_{MARKET_SYMBOL}.json"
     ]
 
     for path in candidates:
@@ -197,28 +198,29 @@ def read_supertrend_trend() -> Optional[int]:
         except FileNotFoundError:
             continue
         except json.JSONDecodeError as exc:
-            logger.warning(f"Invalid JSON in {path}: {exc}")
+            logger.warning(f"⚠️ Invalid JSON in {path}: {exc}")
             return None
         except Exception as exc:
-            logger.error(f"Unexpected error reading {path}: {exc}", exc_info=True)
+            logger.error(f"❌ Unexpected error reading {path}: {exc}", exc_info=True)
             return None
 
-        trend_value = data.get("trend")
+        # Try to get trend from current_signal first, then fallback to root level
+        trend_value = data.get("current_signal", {}).get("trend") or data.get("trend")
         if isinstance(trend_value, str):
             try:
                 trend_value = float(trend_value)
             except ValueError:
-                logger.warning(f"Non-numeric trend value in {path}: {trend_value}")
+                logger.warning(f"⚠️ Non-numeric trend value in {path}: {trend_value}")
                 return None
         if isinstance(trend_value, (int, float)):
             if trend_value > 0:
                 return 1
             if trend_value < 0:
                 return -1
-            logger.info(f"Trend value 0 encountered in {path}; retaining current orientation.")
+            logger.info(f"⚠️ Trend value 0 encountered in {path}; retaining current orientation.")
             return None
 
-        logger.warning(f"Trend entry missing or invalid in {path}.")
+        logger.warning(f"⚠️ Trend entry missing or invalid in {path}.")
         return None
 
     return None
@@ -237,7 +239,7 @@ def update_flip_target_from_supertrend(initial: bool = False) -> None:
         flip_target_state = desired_state
         if initial or not supertrend_issue_logged:
             logger.warning(
-                f"Supertrend parameters not available for {MARKET_SYMBOL}; defaulting to long mode until file appears."
+                f"⚠️ Supertrend parameters not available for {MARKET_SYMBOL}; defaulting to long mode until file appears."
             )
             supertrend_issue_logged = True
         return
@@ -281,7 +283,7 @@ def apply_flip_target_if_idle(force: bool = False) -> bool:
     order_side = get_opening_side()
     last_order_base_amount = 0
     flip_change_block_logged = False
-    logger.info(f"Orientation updated: {previous_mode} → {mode_label()} mode.")
+    logger.info(f"🔄 Orientation updated: {previous_mode} → {mode_label()} mode.")
     return True
 
 
@@ -291,7 +293,7 @@ async def monitor_supertrend_params():
             update_flip_target_from_supertrend()
             apply_flip_target_if_idle()
         except Exception as exc:
-            logger.error(f"Supertrend monitor error: {exc}", exc_info=True)
+            logger.error(f"❌ Supertrend monitor error: {exc}", exc_info=True)
         await asyncio.sleep(SUPER_TREND_REFRESH_SECONDS)
 
 async def adjust_leverage(client: lighter.SignerClient, market_id: int, leverage: int, margin_mode_str: str):
@@ -300,20 +302,20 @@ async def adjust_leverage(client: lighter.SignerClient, market_id: int, leverage
     """
     margin_mode = client.CROSS_MARGIN_MODE if margin_mode_str == "cross" else client.ISOLATED_MARGIN_MODE
     
-    logger.info(f"Attempting to set leverage to {leverage} for market {market_id} with {margin_mode_str} margin.")
+    logger.info(f"⚙️ Attempting to set leverage to {leverage} for market {market_id} with {margin_mode_str} margin.")
 
     try:
         tx, response, err = await client.update_leverage(market_id, margin_mode, leverage)
         if err:
-            logger.error(f"Error updating leverage: {err}")
+            logger.error(f"❌ Error updating leverage: {err}")
             return None, None, err
         else:
-            logger.info("Leverage updated successfully.")
+            logger.info("✅ Leverage updated successfully.")
             logger.debug(f"Transaction: {tx}")
             logger.debug(f"Response: {response}")
             return tx, response, None
     except Exception as e:
-        logger.error(f"An exception occurred: {e}")
+        logger.error(f"❌ An exception occurred: {e}")
         return None, None, e
 
 async def get_market_details(order_api, symbol: str) -> Optional[Tuple[int, float, float]]:
@@ -327,7 +329,7 @@ async def get_market_details(order_api, symbol: str) -> Optional[Tuple[int, floa
                 return market_id, price_tick_size, amount_tick_size
         return None
     except Exception as e:
-        logger.error(f"An error occurred while fetching market details: {e}")
+        logger.error(f"❌ An error occurred while fetching market details: {e}")
         return None
 
 async def submit_reduce_only_close_order(client, position_size, current_mid_price):
@@ -336,7 +338,7 @@ async def submit_reduce_only_close_order(client, position_size, current_mid_pric
 
     magnitude = abs(position_size)
     if magnitude < 1e-9:
-        logger.info("Position already flat; no close order submitted.")
+        logger.info("📊 Position already flat; no close order submitted.")
         return True
 
     base_units = int(magnitude / AMOUNT_TICK_SIZE)
@@ -377,13 +379,13 @@ async def submit_reduce_only_close_order(client, position_size, current_mid_pric
             reduce_only=True
         )
         if err is not None:
-            logger.error(f"Error placing position closing order: {trim_exception(err)}")
+            logger.error(f"❌ Error placing position closing order: {trim_exception(err)}")
             return False
-        logger.info(f"Successfully placed position closing order: tx={getattr(tx_hash,'tx_hash',tx_hash)}")
+        logger.info(f"✅ Successfully placed position closing order: tx={getattr(tx_hash,'tx_hash',tx_hash)}")
         current_order_id = order_id
         return True
     except Exception as e:
-        logger.error(f"Exception while submitting close order: {e}", exc_info=True)
+        logger.error(f"❌ Exception while submitting close order: {e}", exc_info=True)
         return False
 
 
@@ -397,7 +399,7 @@ async def close_open_position_and_wait(client) -> bool:
     while True:
         mid = get_current_mid_price()
         if not mid:
-            logger.info("Waiting for market data before evaluating startup position.")
+            logger.info("⏳ Waiting for market data before evaluating startup position.")
             await asyncio.sleep(3)
             continue
 
@@ -427,7 +429,7 @@ async def close_open_position_and_wait(client) -> bool:
 
             success = await submit_reduce_only_close_order(client, current_size, mid)
             if not success:
-                logger.warning("Failed to submit reduce-only close order; retrying shortly.")
+                logger.warning("⚠️ Failed to submit reduce-only close order; retrying shortly.")
                 await asyncio.sleep(5)
                 continue
 
@@ -455,7 +457,7 @@ def on_order_book_update(market_id, order_book):
             last_order_book_update = time.time()
             order_book_received.set()
     except Exception as e:
-        logger.error(f"Error in order book callback: {e}", exc_info=True)
+        logger.error(f"❌ Error in order book callback: {e}", exc_info=True)
         ws_connection_healthy = False
 
 class RobustWsClient(lighter.WsClient):
@@ -481,12 +483,12 @@ def on_user_stats_update(account_id, stats):
             if new_available_capital > 0 and new_portfolio_value > 0:
                 available_capital = new_available_capital
                 portfolio_value = new_portfolio_value
-                logger.info(f"Received user stats for account {account_id}: Available Capital=${available_capital}, Portfolio Value=${portfolio_value}")
+                logger.info(f"💰 Received user stats for account {account_id}: Available Capital=${available_capital}, Portfolio Value=${portfolio_value}")
                 account_state_received.set()
             else:
-                logger.warning(f"Received user stats with invalid values: available_balance={stats.get('available_balance')}, portfolio_value={stats.get('portfolio_value')}")
+                logger.warning(f"⚠️ Received user stats with invalid values: available_balance={stats.get('available_balance')}, portfolio_value={stats.get('portfolio_value')}")
     except (ValueError, TypeError) as e:
-        logger.error(f"Error processing user stats update: {e}", exc_info=True)
+        logger.error(f"❌ Error processing user stats update: {e}", exc_info=True)
 
 async def subscribe_to_user_stats(account_id):
     """Connects to the websocket, subscribes to user_stats, and updates global state."""
@@ -498,9 +500,9 @@ async def subscribe_to_user_stats(account_id):
     while True:
         try:
             async with websockets.connect(WEBSOCKET_URL) as ws:
-                logger.info(f"Connected to {WEBSOCKET_URL} for user stats")
+                logger.info(f"🔌 Connected to {WEBSOCKET_URL} for user stats")
                 await ws.send(json.dumps(subscription_msg))
-                logger.info(f"Subscribed to user_stats for account {account_id}")
+                logger.info(f"📡 Subscribed to user_stats for account {account_id}")
                 
                 async for message in ws:
                     logger.debug(f"Raw user_stats message received: {message}")
@@ -514,10 +516,10 @@ async def subscribe_to_user_stats(account_id):
                         logger.debug(f"Received unhandled message on user_stats socket: {data}")
                         
         except websockets.exceptions.ConnectionClosed as e:
-            logger.error(f"User stats connection closed: {e}. Reconnecting in 5 seconds...")
+            logger.info(f"🔌 User stats WebSocket disconnected, reconnecting in 5 seconds...")
             await asyncio.sleep(5)
         except Exception as e:
-            logger.error(f"An unexpected error occurred in user_stats socket: {e}. Reconnecting in 5 seconds...")
+            logger.error(f"❌ An unexpected error occurred in user_stats socket: {e}. Reconnecting in 5 seconds...")
             await asyncio.sleep(5)
 
 def on_account_all_update(account_id, data):
@@ -537,7 +539,7 @@ def on_account_all_update(account_id, data):
                 new_size = 0.0
 
             if new_size != current_position_size:
-                logger.info(f"WebSocket position update for market {MARKET_ID}: {current_position_size} -> {new_size}")
+                logger.info(f"📊 WebSocket position update for market {MARKET_ID}: {current_position_size} -> {new_size}")
                 current_position_size = new_size
             
             # Update trades
@@ -548,13 +550,13 @@ def on_account_all_update(account_id, data):
                 for trade in reversed(all_new_trades):
                      if trade not in recent_trades:
                         recent_trades.append(trade)
-                        logger.info(f"WebSocket trade update: Market {trade.get('market_id')}, Type {trade.get('type')}, Size {trade.get('size')}, Price {trade.get('price')}")
+                        logger.info(f"💱 WebSocket trade update: Market {trade.get('market_id')}, Type {trade.get('type')}, Size {trade.get('size')}, Price {trade.get('price')}")
 
             if not account_all_received.is_set():
                 account_all_received.set()
 
     except (ValueError, TypeError) as e:
-        logger.error(f"Error processing account_all update: {e}", exc_info=True)
+        logger.error(f"❌ Error processing account_all update: {e}", exc_info=True)
 
 async def subscribe_to_account_all(account_id):
     """Connects to the websocket, subscribes to account_all, and updates global state."""
@@ -566,9 +568,9 @@ async def subscribe_to_account_all(account_id):
     while True:
         try:
             async with websockets.connect(WEBSOCKET_URL) as ws:
-                logger.info(f"Connected to {WEBSOCKET_URL} for account_all")
+                logger.info(f"🔌 Connected to {WEBSOCKET_URL} for account_all")
                 await ws.send(json.dumps(subscription_msg))
-                logger.info(f"Subscribed to account_all for account {account_id}")
+                logger.info(f"📡 Subscribed to account_all for account {account_id}")
                 
                 async for message in ws:
                     logger.debug(f"Raw account_all message received: {message}")
@@ -582,10 +584,10 @@ async def subscribe_to_account_all(account_id):
                         logger.debug(f"Received unhandled message on account_all socket: {data}")
                         
         except websockets.exceptions.ConnectionClosed as e:
-            logger.error(f"account_all connection closed: {e}. Reconnecting in 5 seconds...")
+            logger.info(f"🔌 Account data WebSocket disconnected, reconnecting in 5 seconds...")
             await asyncio.sleep(5)
         except Exception as e:
-            logger.error(f"An unexpected error occurred in account_all socket: {e}. Reconnecting in 5 seconds...")
+            logger.error(f"❌ An unexpected error occurred in account_all socket: {e}. Reconnecting in 5 seconds...")
             await asyncio.sleep(5)
 
 def get_current_mid_price():
@@ -605,7 +607,7 @@ async def calculate_dynamic_base_amount(current_mid_price):
         return BASE_AMOUNT * float(LEVERAGE)
 
     if available_capital is None or available_capital <= 0:
-        logger.warning(f"No available capital from websocket, using static BASE_AMOUNT: {BASE_AMOUNT}")
+        logger.warning(f"⚠️ No available capital from websocket, using static BASE_AMOUNT: {BASE_AMOUNT}")
         return BASE_AMOUNT * float(LEVERAGE)
 
     usable_capital = available_capital * (1.0 - SAFETY_MARGIN_PERCENT) * float(LEVERAGE)
@@ -613,10 +615,10 @@ async def calculate_dynamic_base_amount(current_mid_price):
     if current_mid_price and current_mid_price > 0:
         dynamic = order_capital / current_mid_price
         dynamic = max(dynamic, 0.001)
-        logger.info(f"Dynamic sizing: ${order_capital:.2f} / ${current_mid_price:.2f} = {dynamic:.6f} units")
+        logger.info(f"📏 Dynamic sizing: ${order_capital:.2f} / ${current_mid_price:.2f} = {dynamic:.6f} units")
         return dynamic
     else:
-        logger.warning(f"Invalid mid price, using static BASE_AMOUNT: {BASE_AMOUNT}")
+        logger.warning(f"⚠️ Invalid mid price, using static BASE_AMOUNT: {BASE_AMOUNT}")
         return BASE_AMOUNT * float(LEVERAGE)
 
 def load_avellaneda_parameters() -> bool:
@@ -647,16 +649,16 @@ def load_avellaneda_parameters() -> bool:
             except FileNotFoundError:
                 continue
             except json.JSONDecodeError as e:
-                logger.warning(f"Invalid JSON in {p}: {e}.")
+                logger.warning(f"⚠️ Invalid JSON in {p}: {e}.")
                 return False
 
         if not data:
-            logger.warning(f"Params file not found for {MARKET_SYMBOL}.")
+            logger.warning(f"⚠️ Params file not found for {MARKET_SYMBOL}.")
             return False
 
         lo = data.get('limit_orders')
         if not isinstance(lo, dict):
-            logger.warning("'limit_orders' missing/invalid in params.")
+            logger.warning("⚠️ 'limit_orders' missing/invalid in params.")
             return False
 
         da = lo.get('delta_a')
@@ -664,10 +666,10 @@ def load_avellaneda_parameters() -> bool:
         try:
             da = float(da); db = float(db)
             if not (math.isfinite(da) and math.isfinite(db)) or da < 0 or db < 0:
-                logger.warning("delta_a/delta_b invalid (NaN/Inf/negative).")
+                logger.warning("⚠️ delta_a/delta_b invalid (NaN/Inf/negative).")
                 return False
         except Exception:
-            logger.warning("delta_a/delta_b not numeric.")
+            logger.warning("⚠️ delta_a/delta_b not numeric.")
             return False
 
         avellaneda_params = data
@@ -682,7 +684,7 @@ def load_avellaneda_parameters() -> bool:
         return True
 
     except Exception as e:
-        logger.error(f"Unexpected error loading params: {e}", exc_info=True)
+        logger.error(f"❌ Unexpected error loading params: {e}", exc_info=True)
         avellaneda_params = None
         return False
 
@@ -693,7 +695,7 @@ def calculate_order_price(mid_price, side) -> Optional[float]:
         return mid_price - float(lo['delta_b']) if side == "buy" else mid_price + float(lo['delta_a'])
 
     if REQUIRE_PARAMS:
-        logger.info("REQUIRE_PARAMS enabled and no valid params → skipping quoting.")
+        logger.info("⚠️ REQUIRE_PARAMS enabled and no valid params → skipping quoting.")
         return None
 
     # fallback static
@@ -705,7 +707,7 @@ async def place_order(client, side, price, order_id, base_amount):
     reduce_only_flag = (side == get_closing_side())
     base_amount_scaled = int(base_amount / AMOUNT_TICK_SIZE)
     price_scaled = int(price / PRICE_TICK_SIZE)
-    logger.info(f"Placing {side} order: {base_amount:.6f} units at ${price:.6f} (ID: {order_id})")
+    logger.info(f"📤 Placing {side} order: {base_amount:.6f} units at ${price:.6f} (ID: {order_id})")
     try:
         tx, tx_hash, err = await client.create_order(
             market_index=MARKET_ID,
@@ -718,13 +720,13 @@ async def place_order(client, side, price, order_id, base_amount):
             reduce_only=reduce_only_flag
         )
         if err is not None:
-            logger.error(f"Error placing {side} order: {trim_exception(err)}")
+            logger.error(f"❌ Error placing {side} order: {trim_exception(err)}")
             return False
-        logger.info(f"Successfully placed {side} order: tx={getattr(tx_hash,'tx_hash',tx_hash)}")
+        logger.info(f"✅ Successfully placed {side} order: tx={getattr(tx_hash,'tx_hash',tx_hash)}")
         current_order_id = order_id
         return True
     except Exception as e:
-        logger.error(f"Exception in place_order: {e}", exc_info=True)
+        logger.error(f"❌ Exception in place_order: {e}", exc_info=True)
         return False
 
 async def cancel_order(client, order_id):
@@ -732,34 +734,38 @@ async def cancel_order(client, order_id):
     Replaced by cancel_all_orders since each bot runs on a dedicated sub-account.
     """
     global current_order_id
-    logger.info(f"Cancelling all orders (was targeting order {order_id})")
+    logger.info(f"🛑 Cancelling all orders (was targeting order {order_id})")
     try:
         tx, tx_hash, err = await client.cancel_all_orders(
             time_in_force=client.CANCEL_ALL_TIF_IMMEDIATE,
             time=0
         )
         if err is not None:
-            logger.error(f"Error cancelling all orders: {trim_exception(err)}")
+            logger.error(f"❌ Error cancelling all orders: {trim_exception(err)}")
             return False
-        logger.info(f"Successfully cancelled all orders: tx={getattr(tx_hash,'tx_hash',tx_hash) if tx_hash else 'OK'}")
+        logger.info(f"✅ Successfully cancelled all orders: tx={getattr(tx_hash,'tx_hash',tx_hash) if tx_hash else 'OK'}")
         current_order_id = None
         return True
     except Exception as e:
-        logger.error(f"Exception in cancel_order: {e}", exc_info=True)
+        logger.error(f"❌ Exception in cancel_order: {e}", exc_info=True)
         return False
 
 async def check_websocket_health():
     global ws_connection_healthy, last_order_book_update, ws_task
     if (time.time() - last_order_book_update) > 30:
-        logger.warning(f"Websocket unhealthy - no updates for {time.time() - last_order_book_update:.1f}s")
+        logger.warning(f"⚠️ Websocket unhealthy - no updates for {time.time() - last_order_book_update:.1f}s")
         ws_connection_healthy = False
         return False
     if ws_task and ws_task.done():
-        logger.warning("Websocket task finished unexpectedly")
+        logger.warning("⚠️ Websocket task finished unexpectedly")
         try:
             ws_task.result()
+        except websockets.exceptions.ConnectionClosed as e:
+            # WebSocket disconnections are normal, log cleanly without traceback
+            logger.info(f"🔌 WebSocket disconnected: {e.reason if hasattr(e, 'reason') else 'connection closed'}")
         except Exception as e:
-            logger.error(f"WS task exception: {e}", exc_info=True)
+            # Log other unexpected exceptions with full traceback
+            logger.error(f"❌ WS task exception: {e}", exc_info=True)
         ws_connection_healthy = False
         return False
     return ws_connection_healthy
@@ -778,7 +784,7 @@ async def restart_websocket():
     ws_client = RobustWsClient(order_book_ids=[MARKET_ID], account_ids=[], on_order_book_update=on_order_book_update)
     ws_task = asyncio.create_task(ws_client.run_async())
     try:
-        logger.info("Waiting for websocket reconnection...")
+        logger.info("⏳ Waiting for websocket reconnection...")
         await asyncio.wait_for(order_book_received.wait(), timeout=15.0)
         logger.info("✅ Websocket reconnected successfully")
         return True
@@ -805,7 +811,7 @@ async def market_making_loop(client, account_api, order_api):
 
             current_mid_price = get_current_mid_price()
             if current_mid_price is None:
-                logger.info("No order book data yet, sleeping...")
+                logger.info("⏳ No order book data yet, sleeping...")
                 await asyncio.sleep(2)
                 continue
 
@@ -822,12 +828,12 @@ async def market_making_loop(client, account_api, order_api):
                 pct = ((order_price - current_mid_price) / current_mid_price) * 100.0
             else:
                 pct = 0.0
-            logger.info(f"Mid: ${current_mid_price:.6f}, Target {order_side}: ${order_price:.6f} ({pct:+.4f}%), Price changed: {price_changed}")
+            logger.info(f"💹 Mid: ${current_mid_price:.6f}, Target {order_side}: ${order_price:.6f} ({pct:+.4f}%), Price changed: {price_changed}")
 
             if current_order_id is not None and price_changed:
                 await cancel_order(client, current_order_id)
             elif current_order_id is not None and not price_changed:
-                logger.info(f"Order {current_order_id} still active - price unchanged")
+                logger.info(f"⏸️ Order {current_order_id} still active - price unchanged")
 
             if current_order_id is None:
                 order_id = int(time.time() * 1_000_000) % 1_000_000
@@ -846,7 +852,7 @@ async def market_making_loop(client, account_api, order_api):
                                 f"Position value ${position_value_usd:.2f} is below ${POSITION_VALUE_THRESHOLD_USD:.2f}; skipping closing order this cycle."
                             )
                     else:
-                        logger.info("No position to close; skipping closing order.")
+                        logger.info("📊 No position to close; skipping closing order.")
 
                 if base_amt > 0:
                     last_order_base_amount = base_amt
@@ -857,7 +863,7 @@ async def market_making_loop(client, account_api, order_api):
                     last_mid_price = current_mid_price
                 else:
                     if order_side == opening_side:
-                        logger.warning("Calculated opening order size is zero, skip.")
+                        logger.warning("⚠️ Calculated opening order size is zero, skip.")
 
             # This is the main logic for the "reconcile-after-timeout" strategy.
             # We wait for a set period, then cancel the order and check our final position.
@@ -906,7 +912,7 @@ async def market_making_loop(client, account_api, order_api):
             await asyncio.sleep(2)
 
         except Exception as e:
-            logger.error(f"Loop error: {e}", exc_info=True)
+            logger.error(f"❌ Loop error: {e}", exc_info=True)
             if "websocket" in str(e).lower():
                 global ws_connection_healthy
                 ws_connection_healthy = False
@@ -921,13 +927,13 @@ async def track_balance():
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 with open(log_path, "a") as f:
                     f.write(f"[{timestamp}] Portfolio Value: ${portfolio_value:,.2f}\n")
-                logger.info(f"Portfolio value of ${portfolio_value:,.2f} logged to {log_path}")
+                logger.info(f"💰 Portfolio value of ${portfolio_value:,.2f} logged to {log_path}")
             elif current_position_size != 0:
-                logger.info(f"Skipping balance logging (open position: {current_position_size})")
+                logger.info(f"⏸️ Skipping balance logging (open position: {current_position_size})")
             else:
-                logger.info("Skipping balance logging (portfolio value not yet received)")
+                logger.info("⏸️ Skipping balance logging (portfolio value not yet received)")
         except Exception as e:
-            logger.error(f"Error in track_balance: {e}", exc_info=True)
+            logger.error(f"❌ Error in track_balance: {e}", exc_info=True)
         await asyncio.sleep(300)
 
 
@@ -937,7 +943,7 @@ async def main():
     global last_mid_price, current_order_id, current_position_size, order_side
     global flip_state, flip_target_state, flip_change_block_logged
 
-    logger.info("=== Market Maker Starting ===")
+    logger.info("🚀 === Market Maker Starting ===")
 
     api_client = lighter.ApiClient(configuration=lighter.Configuration(host=BASE_URL))
     account_api = lighter.AccountApi(api_client)
@@ -945,10 +951,10 @@ async def main():
 
     details = await get_market_details(order_api, MARKET_SYMBOL)
     if not details:
-        logger.error(f"Could not retrieve market details for {MARKET_SYMBOL}. Exiting.")
+        logger.error(f"❌ Could not retrieve market details for {MARKET_SYMBOL}. Exiting.")
         return
     MARKET_ID, PRICE_TICK_SIZE, AMOUNT_TICK_SIZE = details
-    logger.info(f"Market {MARKET_SYMBOL}: id={MARKET_ID}, tick(price)={PRICE_TICK_SIZE}, tick(amount)={AMOUNT_TICK_SIZE}")
+    logger.info(f"📊 Market {MARKET_SYMBOL}: id={MARKET_ID}, tick(price)={PRICE_TICK_SIZE}, tick(amount)={AMOUNT_TICK_SIZE}")
 
     client = lighter.SignerClient(
         url=BASE_URL,
@@ -958,11 +964,11 @@ async def main():
     )
     err = client.check_client()
     if err is not None:
-        logger.error(f"CheckClient error: {trim_exception(err)}")
+        logger.error(f"❌ CheckClient error: {trim_exception(err)}")
         await api_client.close()
         await client.close()
         return
-    logger.info("Client connected successfully")
+    logger.info("✅ Client connected successfully")
 
     # Clean slate: cancel all
     try:
@@ -971,13 +977,13 @@ async def main():
             time=0
         )
         if err is not None:
-            logger.error(f"Failed to cancel existing orders at startup: {trim_exception(err)}")
+            logger.error(f"❌ Failed to cancel existing orders at startup: {trim_exception(err)}")
             await api_client.close()
             await client.close()
             return
         await asyncio.sleep(3)
     except Exception as e:
-        logger.error(f"Exception during cancel-all: {e}", exc_info=True)
+        logger.error(f"❌ Exception during cancel-all: {e}", exc_info=True)
         await api_client.close()
         await client.close()
         return
@@ -990,15 +996,15 @@ async def main():
     account_all_task = asyncio.create_task(subscribe_to_account_all(ACCOUNT_INDEX))
 
     try:
-        logger.info("Waiting for initial order book, account data, and position data...")
+        logger.info("⏳ Waiting for initial order book, account data, and position data...")
         await asyncio.wait_for(order_book_received.wait(), timeout=30.0)
         logger.info(f"✅ Websocket connected for market {MARKET_ID}")
         
-        logger.info("Waiting for valid account capital...")
+        logger.info("⏳ Waiting for valid account capital...")
         await asyncio.wait_for(account_state_received.wait(), timeout=30.0)
         logger.info(f"✅ Received valid account capital: ${available_capital}; and portfolio value: ${portfolio_value}.")
 
-        logger.info("Waiting for initial position data...")
+        logger.info("⏳ Waiting for initial position data...")
         await asyncio.wait_for(account_all_received.wait(), timeout=30.0)
         logger.info(f"✅ Received initial position data. Current size: {current_position_size}")
 
@@ -1029,17 +1035,14 @@ async def main():
         # Adjust leverage at startup if no position is open
         mid_price = get_current_mid_price()
         if mid_price and abs(current_position_size) * mid_price <= POSITION_VALUE_THRESHOLD_USD and current_order_id is None:
-            if LEVERAGE > 1:
-                logger.info(f"Attempting to set leverage to {LEVERAGE}x with {MARGIN_MODE} margin...")
-                _, _, err = await adjust_leverage(client, MARKET_ID, LEVERAGE, MARGIN_MODE)
-                if err:
-                    logger.error(f"Failed to adjust leverage. Please check permissions or API key capabilities. Error: {err}")
-                    # Depending on the strategy, you might want to exit here.
-                    # For now, we will just log the error and continue with default leverage.
-                else:
-                    logger.info(f"Successfully set leverage to {LEVERAGE}x")
+            logger.info(f"⚙️ Attempting to set leverage to {LEVERAGE}x with {MARGIN_MODE} margin...")
+            _, _, err = await adjust_leverage(client, MARKET_ID, LEVERAGE, MARGIN_MODE)
+            if err:
+                logger.error(f"❌ Failed to adjust leverage. Please check permissions or API key capabilities. Error: {err}")
+                # Depending on the strategy, you might want to exit here.
+                # For now, we will just log the error and continue with default leverage.
             else:
-                logger.info("Leverage is set to 1, no adjustment needed.")
+                logger.info(f"✅ Successfully set leverage to {LEVERAGE}x")
         elif has_position_to_close(current_position_size):
             logger.info(
                 f"Existing {position_label(current_position_size)} position of {current_position_size} detected. Evaluating startup mode..."
@@ -1072,9 +1075,9 @@ async def main():
     except asyncio.TimeoutError:
         logger.error("❌ Timeout waiting for initial data from websockets.")
     except (KeyboardInterrupt, asyncio.CancelledError):
-        logger.info("=== Shutdown signal received - Stopping... ===")
+        logger.info("🛑 === Shutdown signal received - Stopping... ===")
     finally:
-        logger.info("=== Market Maker Cleanup Starting ===")
+        logger.info("🧹 === Market Maker Cleanup Starting ===")
         if 'user_stats_task' in locals() and not user_stats_task.done():
             user_stats_task.cancel()
             try:
@@ -1100,8 +1103,23 @@ async def main():
             except asyncio.CancelledError:
                 pass
         if current_order_id is not None:
-            logger.info(f"Cancelling open order {current_order_id} before exit...")
-            await cancel_order(client, current_order_id)
+            logger.info(f"🛑 Cancelling open order {current_order_id} before exit...")
+            try:
+                await asyncio.wait_for(cancel_order(client, current_order_id), timeout=10)
+            except asyncio.TimeoutError:
+                logger.error("❌ Timeout while cancelling order during shutdown.")
+            except Exception as e:
+                logger.error(f"❌ Error cancelling order during shutdown: {e}")
+
+        # As a final safety measure, try to cancel all orders one last time.
+        try:
+            logger.info("🛡️ Final safety measure: attempting to cancel all orders.")
+            await asyncio.wait_for(client.cancel_all_orders(time_in_force=client.CANCEL_ALL_TIF_IMMEDIATE, time=0), timeout=10)
+        except asyncio.TimeoutError:
+            logger.error("Timeout during final order cancellation.")
+        except Exception as e:
+            logger.error(f"Error during final order cancellation: {e}")
+
         if ws_task and not ws_task.done():
             ws_task.cancel()
             try:
@@ -1110,7 +1128,7 @@ async def main():
                 pass
         await client.close()
         await api_client.close()
-        logger.info("Market maker stopped.")
+        logger.info("🛑 Market maker stopped.")
 
 # ============ Entrypoint with signal handling ============ 
 if __name__ == "__main__":
@@ -1125,7 +1143,7 @@ if __name__ == "__main__":
         main_task = asyncio.create_task(main())
 
         def shutdown_handler(sig):
-            logger.info(f"Received exit signal {sig.name}, cancelling main task.")
+            logger.info(f"🛑 Received exit signal {sig.name}. Starting graceful shutdown...")
             if not main_task.done():
                 main_task.cancel()
 
@@ -1139,10 +1157,10 @@ if __name__ == "__main__":
         try:
             await main_task
         except asyncio.CancelledError:
-            logger.info("Main task cancelled. Cleanup is handled in main().")
+            logger.info("🛑 Main task cancelled. Cleanup is handled in main().")
 
     try:
         asyncio.run(main_with_signal_handling())
-        logger.info("Application has finished gracefully.")
+        logger.info("✅ Application has finished gracefully.")
     except (KeyboardInterrupt, SystemExit):
-        logger.info("Application exiting.")
+        logger.info("👋 Application exiting.")
