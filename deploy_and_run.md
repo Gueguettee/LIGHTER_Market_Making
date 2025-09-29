@@ -87,8 +87,20 @@ If it's the first time you run the script, use the `install` argument to set up 
 ./deploy_and_run.sh install
 ```
 
-For subsequent runs, use the `run` argument to deploy code and execute Docker containers:
+For subsequent runs, use the `run` argument to execute the Docker container in the foreground:
 
 ```bash
 ./deploy_and_run.sh run
+```
+
+If you want to start the container in detached mode, use the `startRun` argument.
+
+```bash
+./deploy_and_run.sh startRun
+```
+
+To stop the container and retrieve files, use the `stopRun` argument:
+
+```bash
+./deploy_and_run.sh stopRun
 ```

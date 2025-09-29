@@ -17,9 +17,9 @@ FILES_TO_RETRIEVE=("logs" "params" "lighter_data")
 COMMAND_TO_RUN="docker compose up"
 COMMAND_TO_START_RUN="docker compose up -d"
 COMMAND_TO_STOP_RUN="docker compose down"
-
 LOCAL_PACKAGES=(jq ssh rsync curl zip unzip dos2unix)
 INSTANCE_PACKAGES=(jq dos2unix docker.io docker-compose docker-compose-v2 curl ssh zip unzip)
+START_AND_STOP_INSTANCE=false
 # -----------------------------------
 
 set -e  # Exit on any error
@@ -97,15 +97,17 @@ fi
 
 # Start EC2 instance (wait until running)
 start_instance() {
-  echo "🚀 Starting EC2 instance: $INSTANCE_ID"
-  state=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" --query "Reservations[0].Instances[0].State.Name" --output text)
-  if [ "$state" = "stopped" ]; then
-      aws ec2 start-instances --instance-ids "$INSTANCE_ID"
-  else
-      echo "Instance already in state: $state"
+  if [ "$START_AND_STOP_INSTANCE" = true ]; then
+    echo "🚀 Starting EC2 instance: $INSTANCE_ID"
+    state=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" --query "Reservations[0].Instances[0].State.Name" --output text)
+    if [ "$state" = "stopped" ]; then
+        aws ec2 start-instances --instance-ids "$INSTANCE_ID"
+    else
+        echo "Instance already in state: $state"
+    fi
+    echo "⏳ Waiting for instance to be in 'running' state..."
+    aws ec2 wait instance-running --instance-ids "$INSTANCE_ID"
   fi
-  echo "⏳ Waiting for instance to be in 'running' state..."
-  aws ec2 wait instance-running --instance-ids "$INSTANCE_ID"
 
   INSTANCE_IP=$(aws ec2 describe-instances --instance-ids $INSTANCE_ID --query "Reservations[0].Instances[0].PublicIpAddress" --output text)
   echo "IP publique: $INSTANCE_IP"
@@ -120,6 +122,9 @@ start_instance() {
 
 # Stop EC2 instance (wait until stopped)
 stop_instance() {
+  if [ "$START_AND_STOP_INSTANCE" = false ]; then
+    return
+  fi
   echo "🛑 Stopping EC2 instance: $INSTANCE_ID"
   aws ec2 stop-instances --instance-ids "$INSTANCE_ID"
   echo "⏳ Waiting for instance to be stopped..."

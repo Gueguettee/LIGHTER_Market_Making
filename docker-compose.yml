@@ -108,3 +108,93 @@ services:
       "
     depends_on:
       - avellaneda-calculator
+
+  market-maker2:
+    image: my-image:latest
+    platform: linux/amd64
+    build: .
+    container_name: market-maker2
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./params:/app/params:ro
+      - ./logs:/app/logs
+      - ./market_maker.py:/app/market_maker.py:ro
+      - ./.env:/app/.env:ro
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PARAMS_DIR=/app/params
+      - LOG_DIR=/app/logs
+    command: >
+      sh -c "
+        while true; do
+          echo 'Starting market maker...';
+          python market_maker.py --symbol PAXG;
+          echo 'Restarting in 10 seconds...';
+          sleep 10;
+        done
+      "
+    depends_on:
+      - avellaneda-calculator
+
+  market-maker3:
+    image: my-image:latest
+    platform: linux/amd64
+    build: .
+    container_name: market-maker3
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./params:/app/params:ro
+      - ./logs:/app/logs
+      - ./market_maker.py:/app/market_maker.py:ro
+      - ./.env:/app/.env:ro
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PARAMS_DIR=/app/params
+      - LOG_DIR=/app/logs
+    command: >
+      sh -c "
+        while true; do
+          echo 'Starting market maker...';
+          python market_maker.py --symbol ASTER;
+          echo 'Restarting in 10 seconds...';
+          sleep 10;
+        done
+      "
+    depends_on:
+      - avellaneda-calculator
+
+  market-maker4:
+    image: my-image:latest
+    platform: linux/amd64
+    build: .
+    container_name: market-maker4
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./params:/app/params:ro
+      - ./logs:/app/logs
+      - ./market_maker.py:/app/market_maker.py:ro
+      - ./.env:/app/.env:ro
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PARAMS_DIR=/app/params
+      - LOG_DIR=/app/logs
+    command: >
+      sh -c "
+        while true; do
+          echo 'Starting market maker...';
+          python market_maker.py --symbol XRP;
+          echo 'Restarting in 10 seconds...';
+          sleep 10;
+        done
+      "
+    depends_on:
+      - avellaneda-calculator
