@@ -48,7 +48,7 @@ os.makedirs(LOG_DIR, exist_ok=True)
 SPREAD = 0.035 / 100.0       # static fallback spread (if allowed)
 BASE_AMOUNT = 0.047          # static fallback amount
 USE_DYNAMIC_SIZING = True
-CAPITAL_USAGE_PERCENT = 0.99
+CAPITAL_USAGE_PERCENT = 0.49
 SAFETY_MARGIN_PERCENT = 0.01
 ORDER_TIMEOUT = 30           # seconds
 
