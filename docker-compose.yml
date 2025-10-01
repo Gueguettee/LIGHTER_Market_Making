@@ -139,6 +139,7 @@ services:
   market-maker:
     build: .
     container_name: market-maker
+    platform: linux/arm64
     restart: unless-stopped
     working_dir: /app
     volumes:
@@ -166,6 +167,7 @@ services:
   # market-maker2:
   #   build: .
   #   container_name: market-maker2
+  #   platform: linux/arm64
   #   restart: unless-stopped
   #   working_dir: /app
   #   volumes:
