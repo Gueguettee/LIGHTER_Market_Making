@@ -55,7 +55,7 @@ configure_local() {
 
     sudo apt autoremove -y
   else
-    echo "✅ macOS detected, assuming required packages are installed."
+    echo "⚠️ Assuming required packages are installed on Mac."
   fi
 }
 
@@ -164,6 +164,7 @@ sudo apt update && sudo apt upgrade -y
 for package in "${INSTANCE_PACKAGES[@]}"; do
   if ! command -v $package &> /dev/null; then
     echo "⬇️ Installing missing package: $package"
+    sudo apt install -y $package
   fi
 done
 
