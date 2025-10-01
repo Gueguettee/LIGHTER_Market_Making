@@ -28,7 +28,7 @@ def setup_logging():
 
     # Console handler for summaries and essential messages (INFO and above)
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
+    console_handler.setLevel(logging.ERROR)
     console_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
 
     # Configure root logger
@@ -75,7 +75,7 @@ logger, summary_logger = setup_logging()
 CRYPTO_TICKERS = ['ETH', 'BTC', 'PAXG', 'ASTER', 'SOL', 'BNB', 'HYPE', 'XRP', 'DOGE']  # Symbols to track
 DATA_FOLDER = 'lighter_data'             # Directory for CSV output
 BUFFER_SECONDS = 5                       # Interval to write buffered data to disk
-POLLING_SECONDS = 0.15 * len(CRYPTO_TICKERS)  # Interval to poll for recent trades
+POLLING_SECONDS = 0.2 * len(CRYPTO_TICKERS)  # Interval to poll for recent trades
 
 # --- Global State ---
 # In-memory buffers to store data points before writing them to files in batches.

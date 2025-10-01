@@ -48,9 +48,11 @@ os.makedirs(LOG_DIR, exist_ok=True)
 SPREAD = 0.035 / 100.0       # static fallback spread (if allowed)
 BASE_AMOUNT = 0.047          # static fallback amount
 USE_DYNAMIC_SIZING = True
-CAPITAL_USAGE_PERCENT = 0.49
+CAPITAL_USAGE_PERCENT = 0.99
 SAFETY_MARGIN_PERCENT = 0.01
 ORDER_TIMEOUT = 30           # seconds
+
+N_DIGITS_ROUNDING = 10
 
 # Avellaneda
 AVELLANEDA_REFRESH_INTERVAL = 900  # seconds
@@ -76,6 +78,7 @@ portfolio_value = None
 last_capital_check = 0
 current_position_size = 0
 last_order_base_amount = 0
+position_sign = 0  # 1=long, -1=short, 0=flat
 
 avellaneda_params = None
 last_avellaneda_update = 0
@@ -157,10 +160,10 @@ def get_position_value_usd(position_size: float, mid_price: Optional[float]) -> 
     return abs(position_size) * mid_price
 
 
-def position_label(position_size: float) -> str:
-    if position_size > 0:
+def position_label(sign: float) -> str:
+    if sign > 0:
         return "long"
-    if position_size < 0:
+    if sign < 0:
         return "short"
     return "flat"
 
@@ -265,7 +268,7 @@ def apply_flip_target_if_idle(force: bool = False) -> bool:
         mid_price = get_current_mid_price()
         if is_position_significant(current_position_size, mid_price):
             block_reason = (
-                f"open {position_label(current_position_size)} position of {current_position_size}"
+                f"open {position_label(position_sign)} position of {current_position_size}"
             )
         elif current_order_id is not None:
             block_reason = f"active order {current_order_id}"
@@ -341,14 +344,15 @@ async def submit_reduce_only_close_order(client, position_size, current_mid_pric
         logger.info("📊 Position already flat; no close order submitted.")
         return True
 
-    base_units = int(magnitude / AMOUNT_TICK_SIZE)
+    base_units = int(round(magnitude / AMOUNT_TICK_SIZE, N_DIGITS_ROUNDING))
+    logger.info(f"Calculated base units to close: {base_units} (from position size {position_size} and tick size {AMOUNT_TICK_SIZE})")
     if base_units <= 0:
         logger.warning(
             f"Position size {position_size} insufficient for tick size {AMOUNT_TICK_SIZE}; skipping close order."
         )
         return False
 
-    is_long = position_size > 0
+    is_long = position_sign > 0
     side = "sell" if is_long else "buy"
     target_price = calculate_order_price(current_mid_price, side)
     if target_price is None or target_price <= 0:
@@ -364,7 +368,7 @@ async def submit_reduce_only_close_order(client, position_size, current_mid_pric
 
     order_id = int(time.time() * 1_000_000) % 1_000_000
     logger.info(
-        f"Placing reduce-only {side} order at ${target_price:.6f} to close {position_label(position_size)} position of {position_size}."
+        f"Placing reduce-only {side} order at ${target_price:.6f} to close {position_label(position_sign)} position of {position_size}, base units {base_units} (order ID {order_id})"
     )
 
     try:
@@ -372,7 +376,7 @@ async def submit_reduce_only_close_order(client, position_size, current_mid_pric
             market_index=MARKET_ID,
             client_order_index=order_id,
             base_amount=base_units,
-            price=int(target_price / PRICE_TICK_SIZE),
+            price=int(round(target_price / PRICE_TICK_SIZE, N_DIGITS_ROUNDING)),
             is_ask=is_long,
             order_type=lighter.SignerClient.ORDER_TYPE_LIMIT,
             time_in_force=lighter.SignerClient.ORDER_TIME_IN_FORCE_POST_ONLY,
@@ -404,6 +408,7 @@ async def close_open_position_and_wait(client) -> bool:
             continue
 
         current_size = current_position_size
+        logger.info(current_size)
         significant = is_position_significant(current_size, mid)
 
         if not significant:
@@ -411,14 +416,14 @@ async def close_open_position_and_wait(client) -> bool:
                 await cancel_order(client, current_order_id)
             value = get_position_value_usd(current_size, mid)
             logger.info(
-                f"Startup inventory {current_size} ({position_label(current_size)}) valued at ${value:.2f} < ${POSITION_VALUE_THRESHOLD_USD:.2f}; treating as flat."
+                f"Startup inventory {current_size} ({position_label(position_sign)}) valued at ${value:.2f} < ${POSITION_VALUE_THRESHOLD_USD:.2f}; treating as flat."
             )
             return True
 
         if last_logged_size != current_size:
             value = get_position_value_usd(current_size, mid)
             logger.info(
-                f"🔄 Ensuring flat start. Outstanding {position_label(current_size)} position {current_size} worth ${value:.2f}."
+                f"🔄 Ensuring flat start. Outstanding {position_label(position_sign)} position {current_size} worth ${value:.2f}."
             )
             last_logged_size = current_size
 
@@ -480,7 +485,7 @@ def on_user_stats_update(account_id, stats):
             new_available_capital = float(stats.get('available_balance', 0))
             new_portfolio_value = float(stats.get('portfolio_value', 0))
 
-            if new_available_capital > 0 and new_portfolio_value > 0:
+            if new_available_capital >= 0 and new_portfolio_value > 0:
                 available_capital = new_available_capital
                 portfolio_value = new_portfolio_value
                 logger.info(f"💰 Received user stats for account {account_id}: Available Capital=${available_capital}, Portfolio Value=${portfolio_value}")
@@ -523,11 +528,12 @@ async def subscribe_to_user_stats(account_id):
             await asyncio.sleep(5)
 
 def on_account_all_update(account_id, data):
-    global account_positions, recent_trades, current_position_size
+    global account_positions, recent_trades, current_position_size, position_sign
     try:
         if int(account_id) == ACCOUNT_INDEX:
             # Update positions
             new_positions = data.get("positions", {})
+            logger.info(f"Received account_all update with positions: {new_positions}")
             account_positions = new_positions
             
             market_position = new_positions.get(str(MARKET_ID))
@@ -541,7 +547,8 @@ def on_account_all_update(account_id, data):
             if new_size != current_position_size:
                 logger.info(f"📊 WebSocket position update for market {MARKET_ID}: {current_position_size} -> {new_size}")
                 current_position_size = new_size
-            
+            position_sign = int(market_position.get('sign', 0))
+
             # Update trades
             new_trades_by_market = data.get("trades", {})
             if new_trades_by_market:
@@ -606,7 +613,7 @@ async def calculate_dynamic_base_amount(current_mid_price):
     if not USE_DYNAMIC_SIZING:
         return BASE_AMOUNT * float(LEVERAGE)
 
-    if available_capital is None or available_capital <= 0:
+    if available_capital is None or available_capital < 0:
         logger.warning(f"⚠️ No available capital from websocket, using static BASE_AMOUNT: {BASE_AMOUNT}")
         return BASE_AMOUNT * float(LEVERAGE)
 
@@ -705,8 +712,8 @@ async def place_order(client, side, price, order_id, base_amount):
     global current_order_id
     is_ask = (side == "sell")
     reduce_only_flag = (side == get_closing_side())
-    base_amount_scaled = int(base_amount / AMOUNT_TICK_SIZE)
-    price_scaled = int(price / PRICE_TICK_SIZE)
+    base_amount_scaled = int(round(base_amount / AMOUNT_TICK_SIZE, N_DIGITS_ROUNDING))
+    price_scaled = int(round(price / PRICE_TICK_SIZE, N_DIGITS_ROUNDING))
     logger.info(f"📤 Placing {side} order: {base_amount:.6f} units at ${price:.6f} (ID: {order_id})")
     try:
         tx, tx_hash, err = await client.create_order(
@@ -800,6 +807,7 @@ async def market_making_loop(client, account_api, order_api):
 
     while True:
         try:
+            logger.info(current_position_size)
             opening_side = get_opening_side()
             closing_side = get_closing_side()
             if not await check_websocket_health():
@@ -876,7 +884,7 @@ async def market_making_loop(client, account_api, order_api):
             # After cancelling, current_position_size (updated by the websocket) is our ground truth.
             # Now, we decide if we need to flip the side based on our actual inventory.
             position_value_usd = get_position_value_usd(current_position_size, current_mid_price)
-            inventory_desc = position_label(current_position_size)
+            inventory_desc = position_label(position_sign)
 
             if order_side == opening_side:
                 if has_position_to_close(current_position_size):
@@ -1008,9 +1016,9 @@ async def main():
         await asyncio.wait_for(account_all_received.wait(), timeout=30.0)
         logger.info(f"✅ Received initial position data. Current size: {current_position_size}")
 
-        if current_position_size > 0:
+        if position_sign > 0:
             flip_state = False
-        elif current_position_size < 0:
+        elif position_sign < 0:
             flip_state = True
         flip_target_state = flip_state
         flip_change_block_logged = False
@@ -1045,7 +1053,7 @@ async def main():
                 logger.info(f"✅ Successfully set leverage to {LEVERAGE}x")
         elif has_position_to_close(current_position_size):
             logger.info(
-                f"Existing {position_label(current_position_size)} position of {current_position_size} detected. Evaluating startup mode..."
+                f"Existing {position_label(position_sign)} position of {current_position_size} detected. Evaluating startup mode..."
             )
             mid_price = get_current_mid_price()
             position_value_usd = get_position_value_usd(current_position_size, mid_price)
