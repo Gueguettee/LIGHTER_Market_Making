@@ -207,6 +207,11 @@ EOF
   aws ec2 wait instance-status-ok --instance-ids "$INSTANCE_ID"
   echo "✅ Instance rebooted and ready."
 
+  echo "⏳ Waiting for SSH to come back..."
+  while ! nc -zv "$INSTANCE_IP" 22 2>/dev/null; do
+      sleep 5
+  done
+
   echo "📤 Transfert du code vers l'instance..."
   if [ "${INSTALL_FILES[0]}" == "." ]; then
     INSTALL_FILES=($(ls -d "$LOCAL_CODE_DIR/"* | xargs -n 1 basename))
@@ -220,12 +225,10 @@ EOF
   echo "🚀 Connexion pour build & run Docker..."
   ssh -ti "$SSH_KEY" "$SSH_USER@$INSTANCE_IP" << EOF
 set -e
+
 cd "$REMOTE_DIR"
 
 echo "🛠️ Build de l'image Docker..."
-export UID=$(id -u)
-export GID=$(id -g)
-
 docker compose build
 EOF
 
@@ -257,19 +260,21 @@ sudo rm -f $REMOTE_CODE_DIR/$(basename $ZIP_FILE)
   echo "🚀 Launch command on instance..."
 
   if [[ "$instruction" == "startRun" ]]; then
-    ssh -i "$SSH_KEY" "$SSH_USER@$INSTANCE_IP" -t "
+    ssh -i "$SSH_KEY" "$SSH_USER@$INSTANCE_IP" "
+sudo timedatectl set-ntp true
 cd \"$REMOTE_DIR\"
 echo '🏁 Starting execution...'
 $COMMAND_TO_START_RUN
 "
   elif [[ "$instruction" == "stopRun" ]]; then
-    ssh -i "$SSH_KEY" "$SSH_USER@$INSTANCE_IP" -t "
+    ssh -i "$SSH_KEY" "$SSH_USER@$INSTANCE_IP" "
 cd \"$REMOTE_DIR\"
 echo '🛑 Stopping execution...'
 $COMMAND_TO_STOP_RUN
 "
   else
     ssh -i "$SSH_KEY" "$SSH_USER@$INSTANCE_IP" -t "
+sudo timedatectl set-ntp true
 cd \"$REMOTE_DIR\"
 echo '🏁 Starting execution...'
 $COMMAND_TO_RUN

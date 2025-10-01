@@ -104,3 +104,9 @@ To stop the container and retrieve files, use the `stopRun` argument:
 ```bash
 ./deploy_and_run.sh stopRun
 ```
+
+If you want to just connect to the instance via SSH, use the `connect` argument:
+
+```bash
+./deploy_and_run.sh connect
+```

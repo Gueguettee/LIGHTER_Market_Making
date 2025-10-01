@@ -355,6 +355,8 @@ async def submit_reduce_only_close_order(client, position_size, current_mid_pric
     is_long = position_sign > 0
     side = "sell" if is_long else "buy"
     target_price = calculate_order_price(current_mid_price, side)
+    logger.info(f"Current mid price: ${current_mid_price:.6f}, calculated {side} close price: ${target_price:.6f}")
+    target_price = max(target_price, PRICE_TICK_SIZE)
     if target_price is None or target_price <= 0:
         if side == "sell":
             target_price = current_mid_price * (1.0 + SPREAD)
@@ -364,8 +366,12 @@ async def submit_reduce_only_close_order(client, position_size, current_mid_pric
             f"Falling back to static spread pricing for {side} close order: target ${target_price:.6f}."
         )
 
+    logger.info(f"Current mid price: ${current_mid_price:.6f}, calculated {side} close price: ${target_price:.6f}")
     target_price = max(target_price, PRICE_TICK_SIZE)
-
+    
+    logger.info(f"Current mid price: ${current_mid_price:.6f}, calculated {side} close price: ${target_price:.6f}")
+    target_price = max(target_price, PRICE_TICK_SIZE)
+    
     order_id = int(time.time() * 1_000_000) % 1_000_000
     logger.info(
         f"Placing reduce-only {side} order at ${target_price:.6f} to close {position_label(position_sign)} position of {position_size}, base units {base_units} (order ID {order_id})"
@@ -699,6 +705,7 @@ def calculate_order_price(mid_price, side) -> Optional[float]:
     ok = load_avellaneda_parameters()
     if ok and avellaneda_params:
         lo = avellaneda_params['limit_orders']
+        logger.info(f"Current mid price: ${mid_price:.6f}, Avellaneda {side} price adjustment: {'-' if side == 'buy' else '+'}{lo['delta_b'] if side == 'buy' else lo['delta_a']}")
         return mid_price - float(lo['delta_b']) if side == "buy" else mid_price + float(lo['delta_a'])
 
     if REQUIRE_PARAMS:
