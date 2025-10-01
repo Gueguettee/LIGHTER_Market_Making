@@ -43,16 +43,20 @@ chmod 700 ~/.ssh
 chmod 600 $SSH_KEY
 
 configure_local() {
-  sudo apt update && sudo apt upgrade -y
+  if [[ "$(uname)" != "Darwin" ]]; then
+    sudo apt update && sudo apt upgrade -y
 
-  # Check required packages
-  for package in "${LOCAL_PACKAGES[@]}"; do
-    if ! command -v $package &> /dev/null; then
-      sudo apt install -y $package
-    fi
-  done
+    # Check required packages
+    for package in "${LOCAL_PACKAGES[@]}"; do
+      if ! command -v $package &> /dev/null; then
+        sudo apt install -y $package
+      fi
+    done
 
-  sudo apt autoremove -y
+    sudo apt autoremove -y
+  else
+    echo "✅ macOS detected, assuming required packages are installed."
+  fi
 }
 
 # Configure AWS CLI from credentials JSON
@@ -64,19 +68,26 @@ configure_aws_cli() {
 
   # If aws is not installed
   if ! command -v aws &> /dev/null; then
-    # If x86_64 architecture
-    if [[ "$(uname -m)" == "x86_64" ]]; then
-        echo "⬇️ Installing AWS CLI for x86_64..."
-        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+    # If not Mac:
+    if [[ "$(uname)" != "Darwin" ]]; then
+      # If x86_64 architecture
+      if [[ "$(uname -m)" == "x86_64" ]]; then
+          echo "⬇️ Installing AWS CLI for x86_64..."
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+      else
+          echo "⬇️ Installing AWS CLI for aarch64..."
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"
+      fi
+      unzip awscliv2.zip
+      sudo ./aws/install
+      export PATH=/usr/local/bin:$PATH
+      rm -rf awscliv2.zip aws
     else
-        echo "⬇️ Installing AWS CLI for aarch64..."
-        curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"
+      curl "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o "AWSCLIV2.pkg"
+      sudo installer -pkg AWSCLIV2.pkg -target /
+      rm -f AWSCLIV2.pkg
     fi
-    unzip awscliv2.zip
-    sudo ./aws/install
-    export PATH=/usr/local/bin:$PATH
   fi
-  rm -rf awscliv2.zip aws
 
   AWS_ACCESS_KEY_ID=$(jq -r '.aws_access_key_id' "$CREDENTIALS_FILE")
   AWS_SECRET_ACCESS_KEY=$(jq -r '.aws_secret_access_key' "$CREDENTIALS_FILE")
