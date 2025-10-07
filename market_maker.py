@@ -31,10 +31,10 @@ MARKET_ID = None
 PRICE_TICK_SIZE = None
 AMOUNT_TICK_SIZE = None
 
-LEVERAGE = int(os.getenv("LEVERAGE", "1"))
+LEVERAGE = 4
 MARGIN_MODE = os.getenv("MARGIN_MODE", "cross")
 FLIP_DEFAULT = os.getenv("FLIP", "false").lower() == "true"
-flip_state = FLIP_DEFAULT
+flip_state = False
 flip_target_state = flip_state
 SUPER_TREND_REFRESH_SECONDS = 120
 POSITION_VALUE_THRESHOLD_USD = 15.0
@@ -248,7 +248,7 @@ def update_flip_target_from_supertrend(initial: bool = False) -> None:
         return
 
     supertrend_issue_logged = False
-    target_state = (trend == -1)
+    target_state = False
     if flip_target_state != target_state or initial:
         logger.info(
             f"🧭 Supertrend trend {trend:+d} detected → targeting {mode_label(target_state)} mode."
